@@ -1,0 +1,5 @@
+agno
+streamlit
+icalendar
+python-dotenv
+google-search-results
