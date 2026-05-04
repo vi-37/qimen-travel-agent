@@ -3,3 +3,4 @@ streamlit
 icalendar
 python-dotenv
 google-search-results
+openai
