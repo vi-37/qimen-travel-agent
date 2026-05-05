@@ -42,23 +42,29 @@ def generate_ics_content(plan_text:str, start_date: datetime = None) -> bytes:
             cal.add_component(event)
     return cal.to_ical()
 
-st.set_page_config(page_title="奇门旅行决策仪", layout="wide")
-st.title("奇门旅行决策仪 (智能择吉版)")
-st.caption("给出时间框架，让 AI 为你推演吉日吉时，规划高德打卡路线")
+st.set_page_config(page_title="全球智能旅行决策仪", layout="wide")
+st.title("🌍 全球智能旅行决策仪")
+st.caption("灵活启停奇门择吉，自动适配国内外专属地图导航")
 
 if 'itinerary' not in st.session_state:
     st.session_state.itinerary = None
 
-# 修改点：尝试从环境变量中获取默认值
 default_deepseek = os.getenv("DEEPSEEK_API_KEY", "")
 default_serp = os.getenv("SERPAPI_API_KEY", "")
 
-# 将获取到的默认值填入输入框，如果 .env 没配好，框就是空的，仍可以手动输入
-api_key_input = st.text_input("输入你的 DeepSeek API Key", value=default_deepseek, type="password")
-serp_api_key = st.text_input("输入你的 Serp API Key", value=default_serp, type="password")
+# 侧边栏：用来放一些设置项，让主界面更清爽
+with st.sidebar:
+    st.header("⚙️ 系统配置")
+    api_key_input = st.text_input("DeepSeek API Key", value=default_deepseek, type="password")
+    serp_api_key = st.text_input("Serp API Key", value=default_serp, type="password")
+    
+    st.divider()
+    st.header("🔮 模式选择")
+    # 核心修改 1：增加奇门遁甲的拨动开关
+    use_qimen = st.toggle("启用奇门遁甲择吉", value=True, help="开启后将在行程前推演吉凶方位与吉时；关闭则仅生成常规旅行行程。")
 
 if api_key_input and serp_api_key:
-    # 1. 调研员 Agent
+    # 1. 调研员 Agent 保持不变
     researcher = Agent(
         name="Researcher",
         role="搜索旅游目的地、活动和住宿",
@@ -73,25 +79,28 @@ if api_key_input and serp_api_key:
         add_datetime_to_context=True,
     )
 
-    # 2. 规划师 Agent
+    # 核心修改 2：根据开关动态改变 Planner 的人设和指令
+    planner_role = "资深旅行规划师 + 全球出行向导"
+    planner_desc = "你精通全球旅行规划，能根据用户需求制定极具实操性的深度行程。"
+    planner_instructions = [
+        "1. 结合搜索结果生成详细行程草案。",
+        "2. 将行程建议与用户的偏好深度融合。",
+        # 核心修改 3：智能地图路由指令
+        "3. 【智能地图规则】：请务必自行判断目的地是否在中国大陆境内。如果在中国大陆，请强制为所有地点附上【高德地图】链接（格式：https://ditu.amap.com/search?query=地点）；如果是中国大陆境外，请强制使用【Google Maps】链接（格式：https://www.google.com/maps/search/?api=1&query=地点）。绝不可混用。"
+    ]
+
+    # 如果开启了奇门，再把玄学设定加进去
+    if use_qimen:
+        planner_role += " + 奇门遁甲大局择吉专家"
+        planner_desc += " 同时你精通奇门遁甲择吉，能根据时间范围和行进方位推演吉凶。"
+        planner_instructions.insert(0, "【核心择吉】：在行程最开头设立『奇门择吉建议』板块。推演该时间范围内最适合出行的具体日期和时辰，解析对应的门、星、神、仪格局。")
+
     planner = Agent(
         name="Planner",
-        role="资深旅行规划师 + 奇门遁甲大局择吉专家 + 国内出行向导",
+        role=planner_role,
         model=DeepSeek(id="deepseek-chat", api_key=api_key_input),
-        description=dedent(
-            """\
-        你精通奇门遁甲择吉。
-        如果用户提供的是宽泛的时间范围（如：本月、下周、五一期间），你需要扫描该时间段，
-        根据从出发地到目标地的行进方位，为其推荐格局最佳的出行日期和具体时辰。
-        """
-        ),
-        instructions=[
-            "1. 【核心择吉】：在行程的最开头，设立一个明确的『奇门择吉建议』板块。如果你收到的是宽泛时间范围，请推荐该范围内最适合出行的具体日期和时辰（如：建议5月X日巳时出发）；解析推荐理由及当前的门、星、神、仪格局（如遇青龙返首、临生门等）。",
-            "2. 如果用户给定了具体时间，直接排该时间的盘；若格局凶，推荐临近吉时。",
-            "3. 结合搜索结果生成详细行程草案。",
-            "4. 将玄学建议与用户的饮食偏好（如厚实口感、重芋泥、扎实司康等）融合，比如解释土属性食材与特定吉门的能量共振。",
-            "5. 【强制地图规则】：所有的路线规划必须基于中国大陆情况。请为每一个推荐地点附上【高德地图】的文字搜索指引或 Web 链接（格式如：https://ditu.amap.com/search?query=地点名称），绝对不要使用 Google Maps。"
-        ],
+        description=dedent(planner_desc),
+        instructions=planner_instructions,
         add_datetime_to_context=True,
     )
 
@@ -103,45 +112,45 @@ if api_key_input and serp_api_key:
         destination = st.text_input("你想去哪里？", value="杭州")
         
     time_frame = st.text_input(
-        "计划出行时间范围 (越灵活越好)", 
-        value="本月内找个吉日，不限具体时辰", 
-        help="你可以填'本月内'、'下个周末'、'五一假期'，或者具体的'5月2日早上'，AI 会根据你的范围自动择吉。"
+        "计划出行时间/范围", 
+        value="本周末", 
+        help="例如：本月内、下周末、5月1日早上等。"
     )
     
     col_info1, col_info2 = st.columns(2)
     with col_info1:
         num_days = st.number_input("旅行几天？", min_value=1, max_value=30, value=3)
     with col_info2:
-        preferences = st.text_area("特殊偏好（选填）", placeholder="例如：想吃口感厚实扎实的甜品、喜欢重芋泥和流心芝士、避开网红店...")
+        preferences = st.text_area("特殊偏好（选填）", placeholder="输入你想吃的东西、想看的地方...")
 
     # ---------------- 运行按钮与输出区 ----------------
-    col_btn1, col_btn2 = st.columns([1, 1])
-
-    with col_btn1:
-        if st.button("🔮 开启奇门择吉与行程规划", use_container_width=True):
-            with st.spinner("正在调研目的地与挖掘宝藏店铺..."):
-                research_results: RunOutput = researcher.run(f"Research {destination} for a {num_days} day trip, focusing on {preferences}", stream=False)
-                st.write("✅ 目的地深度调研已完成")
+    if st.button("🚀 开始规划行程", use_container_width=True):
+        with st.spinner("正在调研目的地与搜集最新资讯..."):
+            research_results: RunOutput = researcher.run(f"Research {destination} for a {num_days} day trip, focusing on {preferences}", stream=False)
+            st.write("✅ 目的地深度调研已完成")
+            
+        with st.spinner("正在规划专属智能行程..."):
+            prompt = f"""
+            出发地：{start_point}
+            目的地：{destination}
+            时间范围/要求：{time_frame}
+            持续天数：{num_days} 天
+            特殊要求：{preferences}
+            研究结果：{research_results.content}
+            
+            请严格按照你的系统设定与地图规则，输出最终的行程指南。
+            """
+            
+            # 如果没开奇门，在 prompt 里再次强调不要带玄学
+            if not use_qimen:
+                prompt += "\n注意：用户未开启玄学模式，请直接规划行程，绝对不要提及任何奇门遁甲、排盘、吉凶方位等内容。"
                 
-            with st.spinner("正在推演奇门大局并规划高德路线..."):
-                prompt = f"""
-                出发地：{start_point}
-                目的地：{destination}
-                时间范围/要求：{time_frame}
-                持续天数：{num_days} 天
-                特殊要求：{preferences}
-                研究结果：{research_results.content}
-                
-                请严格按照指令，先进行奇门择吉推演（确定最佳日期与时辰），再输出包含高德地图导航的深度行程。
-                """
-                response: RunOutput = planner.run(prompt, stream=False)
-                st.session_state.itinerary = response.content
-                
-                st.markdown("---")
-                st.write(response.content)
-    
-    with col_btn2:
-        if st.session_state.itinerary:
+            response: RunOutput = planner.run(prompt, stream=False)
+            st.session_state.itinerary = response.content
+            
+            st.markdown("---")
+            st.write(response.content)
+            
             ics_content = generate_ics_content(st.session_state.itinerary, start_date=None)
             st.download_button(
                 label="📅 下载行程概览到日历 (.ics)",
